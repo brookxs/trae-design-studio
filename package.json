@@ -1,0 +1,33 @@
+{
+  "name": "trae-design-studio",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Design Studio for TRAE: watch web/app/mini-program/poster screens generate on a canvas with device frames, click elements to talk with AI, real-time preview, design check, export, and handoff to code.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brookxs/trae-design-studio.git"
+  },
+  "keywords": [
+    "trae",
+    "trae-plugin",
+    "preview",
+    "design",
+    "ui",
+    "frontend"
+  ],
+  "scripts": {
+    "start": "node server/main.mjs"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "locale",
+    "assets",
+    "server",
+    ".trae-plugin",
+    ".mcp.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "trae-design-studio",
+  "version": "0.1.0",
+  "description": "TRAE 设计工作台：实时预览画布 + 点击元素对话修改 + 设计检查 + 导出分享。",
+  "i18n": {
+    "display_name": {
+      "en": "Design Studio",
+      "zh-cn": "设计工作台",
+      "ja": "デザインスタジオ"
+    },
+    "description": {
+      "en": "Real-time design canvas with device frames, click-to-edit, design check, export and handoff.",
+      "zh-cn": "实时预览画布 + 点击元素对话修改 + 设计检查 + 导出分享。",
+      "ja": "デバイスフレーム付きリアルタイムデザインキャンバス"
+    }
+  },
+  "interface": {
+    "displayName": "设计工作台",
+    "shortDescription": "实时预览画布 · 点选元素修改 · 设计检查 · 导出",
+    "longDescription": "TRAE 设计工作台：写好 HTML 后自动弹出右侧预览画布（套手机/浏览器外框），点选元素直接跟 AI 对话修改，多屏并排预览，设计体检，导出展示图/PDF/PPT，转成 React/Vue/HTML 代码。",
+    "developerName": "brooks",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "brandColor": "#246BFD",
+    "logo": "./assets/icon.svg"
+  },
+  "skills": "./skills/",
+  "mcp": "./.mcp.json"
+}

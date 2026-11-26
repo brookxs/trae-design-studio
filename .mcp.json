@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "design-studio": {
+      "command": "node",
+      "args": [
+        "./server/main.mjs"
+      ]
+    }
+  }
+}
