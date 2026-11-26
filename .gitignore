@@ -6,3 +6,6 @@ coverage/
 .trae/
 .env
 .env.*
+__pycache__/
+*.pyc
+.tmp/
