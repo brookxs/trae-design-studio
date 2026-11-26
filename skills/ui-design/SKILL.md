@@ -1,25 +1,8 @@
 ---
 name: UI 界面设计工作台
-description: 做网页、App、微信小程序、平板、桌面软件、海报/社媒图、幻灯片、邮件、路线图·导图、组件这类「看得见的设计」时加载。自动唤起 trae-design-studio MCP 预览工作台，打开右侧面板实时预览、点选元素直接对话修改。
-triggers:
-  - 设计
-  - UI
-  - UX
-  - 界面
-  - 网页
-  - App
-  - 小程序
-  - 海报
-  - 幻灯片
-  - PPT
-  - 品牌官网
-  - 落地页
-  - 首页
-  - Mockup
-  - 原型
-  - 导图
-  - 路线图
-  - 架构图
+description: 设计网页、官网、落地页、App、微信小程序、平板、桌面软件、海报、社媒封面、幻灯片、邮件、品牌UI、原型、Mockup、界面、UX、首页、架构图、路线图、思维导图时加载本技能，自动唤起右侧设计预览工作台。
+user-invocable: true
+disable-model-invocation: false
 ---
 
 # 🎨 UI 界面设计工作台（trae-design-studio）
