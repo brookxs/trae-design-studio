@@ -37,8 +37,8 @@ try {
 
 // 全局状态（类似 dsh-design-studio 的 studio 对象）
 const studio = {
-  trackers: new Map(), // designId → tracker
-  hubs: new Map(),     // designId → hub
+  hub: null,           // 全局共享一个 hub（简化版，后续扩多 designId）
+  designs: new Map(),  // designId → { origin, kind, target }
   history: null,
   browser: null,
   log: (e) => process.stderr.write(`[trae-design-studio] ${e && e.message ? e.message : e}\n`),
@@ -161,6 +161,14 @@ const TOOLS = [
       required: ['designId', 'format'],
     },
   },
+  {
+    name: 'design_close',
+    description: '关闭所有预览服务器，释放端口。',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ]
 
 // ---------- Request Handler ----------
@@ -203,7 +211,15 @@ async function callTool(name, args) {
   if (name === 'design_look') return toolLook(args)
   if (name === 'design_history') return toolHistory(args)
   if (name === 'design_export') return toolExport(args)
+  if (name === 'design_close') return toolClose(args)
   return { content: [{ type: 'text', text: `Tool ${name} not implemented` }] }
+}
+
+/** 全局共享一个 hub（设计简单，后续多 designId 并行时每个开一个） */
+function getHub() {
+  if (!serveMod) throw new Error('serve.js 未加载')
+  if (!studio.hub) studio.hub = serveMod.createHub({ log: studio.log })
+  return studio.hub
 }
 
 async function toolPreview(args) {
@@ -211,73 +227,161 @@ async function toolPreview(args) {
   const kind = args.kind || 'web'
   const designId = args.designId || crypto.randomUUID().slice(0, 8)
 
-  if (!serveMod) {
-    return { content: [{ type: 'text', text: 'Core modules not loaded. Check lib/ files.' }] }
+  // 解析 target → createHub.open() 需要的格式
+  let parsed
+  if (/^\d+$/.test(target)) {
+    parsed = { kind: 'proxy', port: Number(target) }
+  } else if (target.startsWith('http://') || target.startsWith('https://')) {
+    const u = new URL(target)
+    if (!u.port) throw new Error(`URL 需要带端口号，例如 http://localhost:5173`)
+    parsed = { kind: 'proxy', port: Number(u.port) }
+  } else {
+    // 本地路径
+    const abs = path.resolve(target)
+    let stat
+    try { stat = fs.statSync(abs) } catch { throw new Error(`路径不存在: ${abs}`) }
+    parsed = { kind: 'file', root: stat.isDirectory() ? abs : path.dirname(abs) }
   }
 
-  try {
-    // 解析 target 成 dsh-design-studio 能认的格式
-    let parsed
-    if (target.startsWith('http://') || target.startsWith('https://') || /^\d+$/.test(target)) {
-      const port = /^\d+$/.test(target) ? target : new URL(target).port
-      parsed = { kind: 'proxy', url: target.startsWith('http') ? target : `http://localhost:${target}`, port: Number(port) }
-    } else {
-      // 本地路径
-      const stat = fs.statSync(target)
-      if (stat.isDirectory()) {
-        parsed = { kind: 'file', root: target }
-      } else {
-        parsed = { kind: 'file', root: path.dirname(target) }
-      }
-    }
+  const hub = getHub()
+  const r = await hub.open(parsed)
 
-    const hub = serveMod.createHub({ log: studio.log })
-    const r = await hub.open(parsed)
+  studio.designs.set(designId, { origin: r.origin, kind, target })
 
-    studio.hubs.set(designId, hub)
+  // 生成 panel HTML：iframe + 设备外框 + 多屏切换占位
+  const panelHtml = renderPanelFrame(r.origin, kind)
 
-    // 这里返回的 origin 就是预览服务器地址
-    // 前端会用这个地址打开 panel，hub 已经自动注入了 picker.js
-    return {
-      content: [
-        { type: 'text', text: `预览服务器已启动\n` +
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `✅ 预览服务器已启动\n` +
           `  designId: ${designId}\n` +
-          `  预览地址: ${r.origin}\n` +
-          `  设计类型: ${kind}\n\n` +
-          `请用 PureShowWidget(mode: "panel", widget_code: iframe src="${r.origin}") 打开预览画布。\n` +
-          `picker.js 已自动注入，页面元素可点选。` },
-      ],
-    }
-  } catch (e) {
-    return { content: [{ type: 'text', text: `启动预览失败: ${e.message}` }] }
+          `  origin: ${r.origin}\n` +
+          `  kind: ${kind}\n` +
+          `  target: ${target}\n\n` +
+          `👉 现在请用 PureShowWidget 打开右侧面板:\n` +
+          `   mode: "panel"\n` +
+          `   widget_code: 用下面这份 panel_html\n\n` +
+          `picker.js 已自动注入，页面元素可点选。\n` +
+          `改源文件后预览自动刷新。`,
+      },
+      { type: 'text', text: `--- panel_html 开始 ---\n${panelHtml}\n--- panel_html 结束 ---` },
+    ],
   }
 }
 
 async function toolCheck(args) {
+  if (!lookMod || !browserMod) {
+    return { content: [{ type: 'text', text: 'look.js / browser.js 未加载' }] }
+  }
+  const origin = args.designId ? (studio.designs.get(args.designId)?.origin) : null
+  const target = args.target || (origin ? null : null)
+  if (!origin && !target) {
+    return { content: [{ type: 'text', text: '需要 designId 或 target' }] }
+  }
+  // TODO: 打通 browser.js createBrowser() → lookMod.checkDess()
   return {
     content: [
-      { type: 'text', text: '设计体检功能 (design_check) 需要先完成 browser.js + look.js 的适配层。\n' +
-        '底层模块已就位，正在打通 MCP ↔ 无头浏览器链路。' },
+      { type: 'text', text: 'design_check 骨架已就位，browser.js + look.js 打通中。\n' +
+        `designId: ${args.designId || '-'}\n` +
+        `origin: ${origin || '-'}` },
     ],
   }
 }
 
 async function toolLook(args) {
-  return {
-    content: [
-      { type: 'text', text: '截图功能 (design_look) 需要先完成 browser.js + look.js 的适配层。\n' +
-        '底层模块已就位，正在打通 MCP ↔ 无头浏览器链路。' },
-    ],
-  }
+  return { content: [{ type: 'text', text: `design_look 骨架已就位 (${JSON.stringify(args)})` }] }
 }
 
 async function toolHistory(args) {
-  return { content: [{ type: 'text', text: `design_history: ${JSON.stringify(args)} (待适配)` }] }
+  return { content: [{ type: 'text', text: `design_history 骨架已就位 (${JSON.stringify(args)})` }] }
 }
 
 async function toolExport(args) {
-  return { content: [{ type: 'text', text: `design_export: ${JSON.stringify(args)} (待适配)` }] }
+  return { content: [{ type: 'text', text: `design_export 骨架已就位 (${JSON.stringify(args)})` }] }
 }
+
+async function toolClose(args) {
+  const hub = studio.hub
+  if (!hub) return { content: [{ type: 'text', text: '没有打开的预览服务器' }] }
+  hub.closeAll()
+  studio.hub = null
+  studio.designs.clear()
+  return { content: [{ type: 'text', text: '所有预览服务器已关闭' }] }
+}
+
+/** 给 PureShowWidget(panel) 的 HTML：设备外框 + iframe */
+function renderPanelFrame(origin, kind) {
+  // 默认设备尺寸
+  const sizes = {
+    web: { w: '100%', h: '100%', frame: false },
+    app: { w: '390px', h: '844px', frame: true, frameName: 'iphone' },
+    miniprogram: { w: '375px', h: '812px', frame: true, frameName: 'miniprogram' },
+    tablet: { w: '820px', h: '1180px', frame: true, frameName: 'ipad' },
+    desktop: { w: '1280px', h: '800px', frame: true, frameName: 'mac' },
+    poster: { w: '390px', h: '520px', frame: true, frameName: 'iphone' },
+    slides: { w: '960px', h: '540px', frame: true, frameName: 'slides' },
+    email: { w: '600px', h: '900px', frame: false },
+    diagram: { w: '1000px', h: '625px', frame: false },
+  }
+  const s = sizes[kind] || sizes.web
+
+  const frame = s.frame ? FRAMES[s.frameName] || FRAMES.iphone : ''
+
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>trae-design-studio · ${kind}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:#f5f6f8; font-family:-apple-system,Segoe UI,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; gap:24px; }
+  .ds-header { width:100%; max-width:${s.w}; display:flex; justify-content:space-between; align-items:center; }
+  .ds-title { font-size:13px; color:#666; font-weight:600; }
+  .ds-origin { font-family:monospace; font-size:11px; color:#999; }
+  .ds-frame { ${s.frame ? frame : 'width:'+s.w+';height:'+s.h+';border:1px solid #e1e1e4;border-radius:8px;background:#fff;overflow:hidden;'} }
+  .ds-frame iframe { width:100%; height:100%; border:0; display:block; }
+  /* 设备外框（iPhone 风格）*/
+  .ds-device { position:relative; background:#1a1a1a; border-radius:48px; padding:10px; box-shadow:0 20px 60px rgba(0,0,0,0.15); }
+  .ds-device::before { content:""; position:absolute; top:12px; left:50%; transform:translateX(-50%); width:120px; height:30px; background:#000; border-radius:0 0 20px 20px; z-index:2; }
+  .ds-device iframe { border-radius:36px; }
+  /* Mac 窗口 */
+  .ds-mac { background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.15); }
+  .ds-mac-bar { height:30px; background:#ececec; display:flex; align-items:center; padding-left:12px; gap:6px; }
+  .ds-mac-bar span { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .ds-mac-bar .r { background:#ff5f57; }
+  .ds-mac-bar .y { background:#febc2e; }
+  .ds-mac-bar .g { background:#28c840; }
+  .ds-mac-iframe { border-top:1px solid #e1e1e4; }
+  /* 小程序 */
+  .ds-mini { position:relative; background:#fff; border-radius:24px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.15); }
+  .ds-mini::after { content:""; position:absolute; top:8px; right:12px; width:76px; height:26px; border-radius:13px; border:1px solid #000; z-index:2; }
+</style></head>
+<body>
+  <div class="ds-header">
+    <div class="ds-title">🎨 设计工作台 · ${kind} · ${s.w}×${s.h}</div>
+    <div class="ds-origin">${origin}</div>
+  </div>
+  ${frameBlock(origin, kind, s)}
+</body></html>`
+}
+
+function frameBlock(origin, kind, s) {
+  if (kind === 'app' || kind === 'poster') {
+    return `<div class="ds-device" style="width:${s.w};height:${s.h};"><iframe src="${origin}" style="width:100%;height:100%;"></iframe></div>`
+  }
+  if (kind === 'miniprogram') {
+    return `<div class="ds-mini" style="width:${s.w};height:${s.h};"><iframe src="${origin}" style="width:100%;height:100%;"></iframe></div>`
+  }
+  if (kind === 'desktop') {
+    return `<div class="ds-mac" style="width:${s.w};height:${s.h};"><div class="ds-mac-bar"><span class="r"></span><span class="y"></span><span class="g"></span></div><div class="ds-mac-iframe" style="width:100%;height:calc(100% - 30px);"><iframe src="${origin}" style="width:100%;height:100%;border:0;display:block;"></iframe></div></div>`
+  }
+  // web / slides / email / diagram / tablet
+  const w = kind === 'web' ? '96%' : s.w
+  const h = kind === 'web' ? '85vh' : s.h
+  return `<div class="ds-frame" style="width:${w};height:${h};"><iframe src="${origin}"></iframe></div>`
+}
+
+const FRAMES = { /* 占位，上面的 CSS 里已写了 */ }
 
 // ---------- Bootstrap ----------
 
